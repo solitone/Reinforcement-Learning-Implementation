@@ -5,12 +5,9 @@ import time
 BOARD_ROWS = 3
 BOARD_COLS = 3
 
-
-class State:
-    def __init__(self, p1, p2):
-        self.board = np.zeros((BOARD_ROWS, BOARD_COLS))
-        self.p1 = p1
-        self.p2 = p2
+class Board:
+    def __init__(self):
+        self.state = np.zeros((BOARD_ROWS, BOARD_COLS))
         self.isEnd = False
         self.boardHash = None
         # init p1 plays first
@@ -18,29 +15,29 @@ class State:
 
     # get unique hash of current board state
     def getHash(self):
-        self.boardHash = str(self.board.reshape(BOARD_COLS * BOARD_ROWS))
+        self.boardHash = str(self.state.reshape(BOARD_COLS * BOARD_ROWS))
         return self.boardHash
 
     def winner(self):
         # row
         for i in range(BOARD_ROWS):
-            if sum(self.board[i, :]) == 3:
+            if sum(self.state[i, :]) == 3:
                 self.isEnd = True
                 return 1
-            if sum(self.board[i, :]) == -3:
+            if sum(self.state[i, :]) == -3:
                 self.isEnd = True
                 return -1
         # col
         for i in range(BOARD_COLS):
-            if sum(self.board[:, i]) == 3:
+            if sum(self.state[:, i]) == 3:
                 self.isEnd = True
                 return 1
-            if sum(self.board[:, i]) == -3:
+            if sum(self.state[:, i]) == -3:
                 self.isEnd = True
                 return -1
         # diagonal
-        diag_sum1 = sum([self.board[i, i] for i in range(BOARD_COLS)])
-        diag_sum2 = sum([self.board[i, BOARD_COLS - i - 1] for i in range(BOARD_COLS)])
+        diag_sum1 = sum([self.state[i, i] for i in range(BOARD_COLS)])
+        diag_sum2 = sum([self.state[i, BOARD_COLS - i - 1] for i in range(BOARD_COLS)])
         diag_sum = max(abs(diag_sum1), abs(diag_sum2))
         if diag_sum == 3:
             self.isEnd = True
@@ -62,18 +59,50 @@ class State:
         positions = []
         for i in range(BOARD_ROWS):
             for j in range(BOARD_COLS):
-                if self.board[i, j] == 0:
+                if self.state[i, j] == 0:
                     positions.append((i, j))  # need to be tuple
         return positions
 
     def updateState(self, position):
-        self.board[position] = self.playerSymbol
+        self.state[position] = self.playerSymbol
         # switch to another player
         self.playerSymbol = -1 if self.playerSymbol == 1 else 1
 
+    # board reset
+    def reset(self):
+        self.state = np.zeros((BOARD_ROWS, BOARD_COLS))
+        self.boardHash = None
+        self.isEnd = False
+        self.playerSymbol = 1
+
+
+    def showBoard(self):
+        # p1: x  p2: o
+        print('  ' + '  0   1   2  ')
+        for i in range(0, BOARD_ROWS):
+            print('  ' + '-------------')
+            out = str(i) + ' ' + '| '
+            for j in range(0, BOARD_COLS):
+                if self.state[i, j] == 1:
+                    token = 'x'
+                if self.state[i, j] == -1:
+                    token = 'o'
+                if self.state[i, j] == 0:
+                    token = ' '
+                out += token + ' | '
+            print(out)
+        print('  ' + '-------------')
+
+
+class Judge:
+    def __init__(self, p1, p2):
+        self.board = Board()
+        self.p1 = p1
+        self.p2 = p2
+
     # only when game ends
     def giveReward(self):
-        result = self.winner()
+        result = self.board.winner()
         # backpropagate reward
         if result == 1:
             self.p1.feedReward(1)
@@ -85,107 +114,85 @@ class State:
             self.p1.feedReward(0.1)
             self.p2.feedReward(0.5)
 
-    # board reset
-    def reset(self):
-        self.board = np.zeros((BOARD_ROWS, BOARD_COLS))
-        self.boardHash = None
-        self.isEnd = False
-        self.playerSymbol = 1
 
     def play(self, rounds=100):
         for i in range(rounds):
             if (i+1) % 1000 == 0:
                 print("{} partite giocate...".format(i+1))
-            while not self.isEnd:
+            while not self.board.isEnd:
                 # Player 1
-                positions = self.availablePositions()
-                p1_action = self.p1.chooseAction(positions, self.board, self.playerSymbol)
+                positions = self.board.availablePositions()
+                p1_action = self.p1.chooseAction(positions, self.board.state, self.board.playerSymbol)
                 # take action and upate board state
-                self.updateState(p1_action)
-                board_hash = self.getHash()
+                self.board.updateState(p1_action)
+                board_hash = self.board.getHash()
                 self.p1.addState(board_hash)
                 # check board status if it is end
 
-                win = self.winner()
+                win = self.board.winner()
                 if win is not None:
                     # self.showBoard()
                     # ended with p1 either win or draw
                     self.giveReward()
                     self.p1.reset()
                     self.p2.reset()
-                    self.reset()
+                    self.board.reset()
                     break
 
                 else:
                     # Player 2
-                    positions = self.availablePositions()
-                    p2_action = self.p2.chooseAction(positions, self.board, self.playerSymbol)
-                    self.updateState(p2_action)
-                    board_hash = self.getHash()
+                    positions = self.board.availablePositions()
+                    p2_action = self.p2.chooseAction(positions, self.board.state, self.board.playerSymbol)
+                    self.board.updateState(p2_action)
+                    board_hash = self.board.getHash()
                     self.p2.addState(board_hash)
 
-                    win = self.winner()
+                    win = self.board.winner()
                     if win is not None:
                         # self.showBoard()
                         # ended with p2 either win or draw
                         self.giveReward()
                         self.p1.reset()
                         self.p2.reset()
-                        self.reset()
+                        self.board.reset()
                         break
 
     # play with human
     def play2(self):
-        while not self.isEnd:
+        while not self.board.isEnd:
             # Player 1
-            positions = self.availablePositions()
-            p1_action = self.p1.chooseAction(positions, self.board, self.playerSymbol)
+            positions = self.board.availablePositions()
+            p1_action = self.p1.chooseAction(positions, self.board.state, self.board.playerSymbol)
             # take action and upate board state
-            self.updateState(p1_action)
+            self.board.updateState(p1_action)
             time.sleep(2)
-            self.showBoard()
+            self.board.showBoard()
             # check board status if it is end
-            win = self.winner()
+            win = self.board.winner()
             if win is not None:
                 if win == 1:
                     print(self.p1.name, "ha vinto!")
                 else:
                     print("Patta!")
-                self.reset()
+                self.board.reset()
                 break
 
             else:
                 # Player 2
-                positions = self.availablePositions()
+                positions = self.board.availablePositions()
                 p2_action = self.p2.chooseAction(positions)
 
-                self.updateState(p2_action)
-                self.showBoard()
-                win = self.winner()
+                self.board.updateState(p2_action)
+                self.board.showBoard()
+                win = self.board.winner()
                 if win is not None:
                     if win == -1:
                         print(self.p2.name, "ha vinto!")
                     else:
                         print("Patta!")
-                    self.reset()
+                    self.board.reset()
                     break
 
-    def showBoard(self):
-        # p1: x  p2: o
-        print('  ' + '  0   1   2  ')
-        for i in range(0, BOARD_ROWS):
-            print('  ' + '-------------')
-            out = str(i) + ' ' + '| '
-            for j in range(0, BOARD_COLS):
-                if self.board[i, j] == 1:
-                    token = 'x'
-                if self.board[i, j] == -1:
-                    token = 'o'
-                if self.board[i, j] == 0:
-                    token = ' '
-                out += token + ' | '
-            print(out)
-        print('  ' + '-------------')
 
 
 class Player:
@@ -196,6 +203,8 @@ class Player:
         self.exp_rate = exp_rate
         self.decay_gamma = 0.9
         self.states_value = {}  # state -> value
+
+        #self.initial_value = 0.5
 
     def getHash(self, board):
         boardHash = str(board.reshape(BOARD_COLS * BOARD_ROWS))
@@ -211,6 +220,9 @@ class Player:
             for p in positions:
                 next_board = current_board.copy()
                 next_board[p] = symbol
+
+                next_board
+
                 next_boardHash = self.getHash(next_board)
                 value = 0 if self.states_value.get(next_boardHash) is None else self.states_value.get(next_boardHash)
                 # print("value", value)
@@ -275,9 +287,9 @@ if __name__ == "__main__":
     p1 = Player("p1")
     p2 = Player("p2")
 
-    st = State(p1, p2)
+    jdg = Judge(p1, p2)
     print("Allenamento:")
-    st.play(50000)
+    jdg.play(1500)
     print("...terminato.")
     p1.savePolicy()
 
@@ -287,5 +299,5 @@ if __name__ == "__main__":
 
     p2 = HumanPlayer("Uomo")
 
-    st = State(p1, p2)
-    st.play2()
+    jdg = Judge(p1, p2)
+    jdg.play2()
