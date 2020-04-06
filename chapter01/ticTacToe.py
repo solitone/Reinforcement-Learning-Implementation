@@ -6,20 +6,17 @@ BOARD_ROWS = 3
 BOARD_COLS = 3
 
 class Board:
-    def __init__(self):
-        self.state = np.zeros((BOARD_ROWS, BOARD_COLS))
+    def __init__(self, boardState = None):
+        self.state = np.zeros((BOARD_ROWS, BOARD_COLS)) if boardState is None else boardState
         self.isEnd = False
         self.boardHash = None
         # init p1 plays first
         self.playerSymbol = 1
 
     # get unique hash of current board state
-    def getHash(self, otherBoardState = None):
-        if otherBoardState is None:
-            self.boardHash = str(self.state.reshape(BOARD_COLS * BOARD_ROWS))
-            return self.boardHash
-        else:
-            return str(otherBoardState.reshape(BOARD_COLS * BOARD_ROWS))
+    def getHash(self):
+        self.boardHash = str(self.state.reshape(BOARD_COLS * BOARD_ROWS))
+        return self.boardHash
 
     def winner(self):
         # row
@@ -103,62 +100,29 @@ class Judge:
         self.p1 = p1
         self.p2 = p2
 
-    # only when game ends
-    def giveReward(self):
-        result = self.board.winner()
-        # backpropagate reward
-        if result == 1:
-            self.p1.feedReward(1)
-            self.p2.feedReward(0)
-        elif result == -1:
-            self.p1.feedReward(0)
-            self.p2.feedReward(1)
-        else:
-            self.p1.feedReward(0.1)
-            self.p2.feedReward(0.5)
-
-
     def train(self, rounds=100):
-        for i in range(rounds):
-            if (i+1) % 1000 == 0:
-                print("{} partite giocate...".format(i+1))
+        for i in range(1, rounds+1):
+            self.board.reset() # start from empty board
             while not self.board.isEnd:
-                # Player 1
+                # Player 1's turn
                 positions = self.board.availablePositions()
                 p1_action = self.p1.chooseAction(positions, self.board)
                 # take action and upate board state
                 self.board.updateState(p1_action)
-                board_hash = self.board.getHash()
-                self.p1.addState(board_hash)
                 # check board status if it is end
-
                 win = self.board.winner()
-                if win is not None:
-                    # self.showBoard()
-                    # ended with p1 either win or draw
-                    self.giveReward()
-                    self.p1.reset()
-                    self.p2.reset()
-                    self.board.reset()
-                    break
 
-                else:
-                    # Player 2
+                if not self.board.isEnd:
+                    # Player 1 did not win or draw
+                    # -> Player 2's turn
                     positions = self.board.availablePositions()
                     p2_action = self.p2.chooseAction(positions, self.board)
                     self.board.updateState(p2_action)
-                    board_hash = self.board.getHash()
-                    self.p2.addState(board_hash)
-
+                    # check board status if it is end
                     win = self.board.winner()
-                    if win is not None:
-                        # self.showBoard()
-                        # ended with p2 either win or draw
-                        self.giveReward()
-                        self.p1.reset()
-                        self.p2.reset()
-                        self.board.reset()
-                        break
+            if i % 1000 == 0:
+                print("{} partite giocate...".format(i))
+
 
     # play with human
     def play(self):
@@ -197,22 +161,18 @@ class Judge:
                     break
 
 
-
 class Player:
-    def __init__(self, name, exp_rate=0.3):
+    def __init__(self, name, exploration_rate=0.01):
         self.name = name
-        self.states = []  # record all positions taken
-        self.lr = 0.2
-        self.exp_rate = exp_rate
-        self.decay_gamma = 0.9
+        self.learning_rate = 0.5
+        self.exploration_rate = exploration_rate
         self.states_value = {}  # state -> value
 
-        #self.initial_value = 0.5
 
     def chooseAction(self, positions, current_board):
         current_state = current_board.state
         symbol = current_board.playerSymbol
-        if np.random.uniform(0, 1) <= self.exp_rate:
+        if np.random.uniform(0, 1) <= self.exploration_rate:
             # take random action
             idx = np.random.choice(len(positions))
             action = positions[idx]
@@ -222,29 +182,36 @@ class Player:
                 next_state = current_state.copy()
                 next_state[p] = symbol
 
-                next_boardHash = current_board.getHash(next_state)
-                value = 0 if self.states_value.get(next_boardHash) is None else self.states_value.get(next_boardHash)
+                next_board = Board(next_state)
+                next_boardHash = next_board.getHash()
+
+                if self.states_value.get(next_boardHash) is None:
+                    # if yet unexplored state
+                    if next_board.winner() == symbol: # winning board states
+                        # record as winning state
+                        self.states_value[next_boardHash] = 1
+                    elif next_board.winner() == (-1)*symbol: # loosing board states
+                        # record as losing state
+                        self.states_value[next_boardHash] = 0
+                    else: # same odds to win or loose
+                        # record as neutral state
+                        self.states_value[next_boardHash] = 0.5
+
+                value = self.states_value.get(next_boardHash)
                 # print("value", value)
                 if value >= value_max:
                     value_max = value
                     action = p
+
+            # update current state value
+            if self.states_value.get(current_board.getHash()) is None:
+                # cannot be either a win or a loss -> set current value to 0.5
+                self.states_value[current_board.getHash()] = 0.5
+            self.states_value[current_board.getHash()] += self.learning_rate * (self.states_value[next_boardHash] - self.states_value[current_board.getHash()])
+
         # print("{} takes action {}".format(self.name, action))
         return action
 
-    # append a hash state
-    def addState(self, state):
-        self.states.append(state)
-
-    # at the end of game, backpropagate and update states value
-    def feedReward(self, reward):
-        for st in reversed(self.states):
-            if self.states_value.get(st) is None:
-                self.states_value[st] = 0
-            self.states_value[st] += self.lr * (self.decay_gamma * reward - self.states_value[st])
-            reward = self.states_value[st]
-
-    def reset(self):
-        self.states = []
 
     def savePolicy(self):
         fw = open('policy_' + str(self.name) + '.pol', 'wb')
@@ -269,18 +236,6 @@ class HumanPlayer:
             if action in positions:
                 return action
 
-    # append a hash state
-    def addState(self, state):
-        pass
-
-    # at the end of game, backpropagate and update states value
-    def feedReward(self, reward):
-        pass
-
-    def reset(self):
-        pass
-
-
 if __name__ == "__main__":
     # training
     p1 = Player("p1")
@@ -288,12 +243,12 @@ if __name__ == "__main__":
 
     jdg = Judge(p1, p2)
     print("Allenamento:")
-    jdg.train(1500)
+    jdg.train(20000)
     print("...terminato.")
     p1.savePolicy()
 
     # play with human
-    p1 = Player("Computer", exp_rate=0)
+    p1 = Player("Computer", exploration_rate=0)
     p1.loadPolicy("policy_p1.pol")
 
     p2 = HumanPlayer("Uomo")
