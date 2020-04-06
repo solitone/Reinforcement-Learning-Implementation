@@ -14,9 +14,12 @@ class Board:
         self.playerSymbol = 1
 
     # get unique hash of current board state
-    def getHash(self):
-        self.boardHash = str(self.state.reshape(BOARD_COLS * BOARD_ROWS))
-        return self.boardHash
+    def getHash(self, otherBoardState = None):
+        if otherBoardState is None:
+            self.boardHash = str(self.state.reshape(BOARD_COLS * BOARD_ROWS))
+            return self.boardHash
+        else:
+            return str(otherBoardState.reshape(BOARD_COLS * BOARD_ROWS))
 
     def winner(self):
         # row
@@ -115,14 +118,14 @@ class Judge:
             self.p2.feedReward(0.5)
 
 
-    def play(self, rounds=100):
+    def train(self, rounds=100):
         for i in range(rounds):
             if (i+1) % 1000 == 0:
                 print("{} partite giocate...".format(i+1))
             while not self.board.isEnd:
                 # Player 1
                 positions = self.board.availablePositions()
-                p1_action = self.p1.chooseAction(positions, self.board.state, self.board.playerSymbol)
+                p1_action = self.p1.chooseAction(positions, self.board)
                 # take action and upate board state
                 self.board.updateState(p1_action)
                 board_hash = self.board.getHash()
@@ -142,7 +145,7 @@ class Judge:
                 else:
                     # Player 2
                     positions = self.board.availablePositions()
-                    p2_action = self.p2.chooseAction(positions, self.board.state, self.board.playerSymbol)
+                    p2_action = self.p2.chooseAction(positions, self.board)
                     self.board.updateState(p2_action)
                     board_hash = self.board.getHash()
                     self.p2.addState(board_hash)
@@ -158,11 +161,11 @@ class Judge:
                         break
 
     # play with human
-    def play2(self):
+    def play(self):
         while not self.board.isEnd:
             # Player 1
             positions = self.board.availablePositions()
-            p1_action = self.p1.chooseAction(positions, self.board.state, self.board.playerSymbol)
+            p1_action = self.p1.chooseAction(positions, self.board)
             # take action and upate board state
             self.board.updateState(p1_action)
             time.sleep(2)
@@ -206,11 +209,9 @@ class Player:
 
         #self.initial_value = 0.5
 
-    def getHash(self, board):
-        boardHash = str(board.reshape(BOARD_COLS * BOARD_ROWS))
-        return boardHash
-
-    def chooseAction(self, positions, current_board, symbol):
+    def chooseAction(self, positions, current_board):
+        current_state = current_board.state
+        symbol = current_board.playerSymbol
         if np.random.uniform(0, 1) <= self.exp_rate:
             # take random action
             idx = np.random.choice(len(positions))
@@ -218,12 +219,10 @@ class Player:
         else:
             value_max = -999
             for p in positions:
-                next_board = current_board.copy()
-                next_board[p] = symbol
+                next_state = current_state.copy()
+                next_state[p] = symbol
 
-                next_board
-
-                next_boardHash = self.getHash(next_board)
+                next_boardHash = current_board.getHash(next_state)
                 value = 0 if self.states_value.get(next_boardHash) is None else self.states_value.get(next_boardHash)
                 # print("value", value)
                 if value >= value_max:
@@ -289,7 +288,7 @@ if __name__ == "__main__":
 
     jdg = Judge(p1, p2)
     print("Allenamento:")
-    jdg.play(1500)
+    jdg.train(1500)
     print("...terminato.")
     p1.savePolicy()
 
@@ -300,4 +299,4 @@ if __name__ == "__main__":
     p2 = HumanPlayer("Uomo")
 
     jdg = Judge(p1, p2)
-    jdg.play2()
+    jdg.play()
