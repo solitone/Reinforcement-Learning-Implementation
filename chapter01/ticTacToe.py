@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+import time
 
 BOARD_ROWS = 3
 BOARD_COLS = 3
@@ -93,8 +94,8 @@ class State:
 
     def play(self, rounds=100):
         for i in range(rounds):
-            if i % 1000 == 0:
-                print("Rounds {}".format(i))
+            if (i+1) % 1000 == 0:
+                print("{} partite giocate...".format(i+1))
             while not self.isEnd:
                 # Player 1
                 positions = self.availablePositions()
@@ -141,14 +142,15 @@ class State:
             p1_action = self.p1.chooseAction(positions, self.board, self.playerSymbol)
             # take action and upate board state
             self.updateState(p1_action)
+            time.sleep(2)
             self.showBoard()
             # check board status if it is end
             win = self.winner()
             if win is not None:
                 if win == 1:
-                    print(self.p1.name, "wins!")
+                    print(self.p1.name, "ha vinto!")
                 else:
-                    print("tie!")
+                    print("Patta!")
                 self.reset()
                 break
 
@@ -162,17 +164,18 @@ class State:
                 win = self.winner()
                 if win is not None:
                     if win == -1:
-                        print(self.p2.name, "wins!")
+                        print(self.p2.name, "ha vinto!")
                     else:
-                        print("tie!")
+                        print("Patta!")
                     self.reset()
                     break
 
     def showBoard(self):
         # p1: x  p2: o
+        print('  ' + '  0   1   2  ')
         for i in range(0, BOARD_ROWS):
-            print('-------------')
-            out = '| '
+            print('  ' + '-------------')
+            out = str(i) + ' ' + '| '
             for j in range(0, BOARD_COLS):
                 if self.board[i, j] == 1:
                     token = 'x'
@@ -182,7 +185,7 @@ class State:
                     token = ' '
                 out += token + ' | '
             print(out)
-        print('-------------')
+        print('  ' + '-------------')
 
 
 class Player:
@@ -233,7 +236,7 @@ class Player:
         self.states = []
 
     def savePolicy(self):
-        fw = open('policy_' + str(self.name), 'wb')
+        fw = open('policy_' + str(self.name) + '.pol', 'wb')
         pickle.dump(self.states_value, fw)
         fw.close()
 
@@ -249,8 +252,8 @@ class HumanPlayer:
 
     def chooseAction(self, positions):
         while True:
-            row = int(input("Input your action row:"))
-            col = int(input("Input your action col:"))
+            row = int(input("Inserisci la riga della tua mossa [0-2]: "))
+            col = int(input("Inserisci la colonna della tua mossa [0-2]: "))
             action = (row, col)
             if action in positions:
                 return action
@@ -273,14 +276,16 @@ if __name__ == "__main__":
     p2 = Player("p2")
 
     st = State(p1, p2)
-    print("training...")
+    print("Allenamento:")
     st.play(50000)
+    print("...terminato.")
+    p1.savePolicy()
 
     # play with human
-    p1 = Player("computer", exp_rate=0)
-    p1.loadPolicy("policy_p1")
+    p1 = Player("Computer", exp_rate=0)
+    p1.loadPolicy("policy_p1.pol")
 
-    p2 = HumanPlayer("human")
+    p2 = HumanPlayer("Uomo")
 
     st = State(p1, p2)
     st.play2()

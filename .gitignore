@@ -1,5 +1,2 @@
-.idea/*
-.idea
-*/.ipynb_checkpoints
-.ipynb_checkpoints
 */__pycache__
+*.pol
