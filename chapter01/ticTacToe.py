@@ -61,6 +61,7 @@ class Board:
             for j in range(BOARD_COLS):
                 if self.state[i, j] == 0:
                     positions.append((i, j))  # need to be tuple
+        #np.random.shuffle(positions)
         return positions
 
     def updateState(self, position):
@@ -102,24 +103,36 @@ class Judge:
 
     def train(self, rounds=100):
         for i in range(1, rounds+1):
-            self.board.reset() # start from empty board
+
             while not self.board.isEnd:
-                # Player 1's turn
+                # player1's turn
                 positions = self.board.availablePositions()
                 p1_action = self.p1.chooseAction(positions, self.board)
                 # take action and upate board state
                 self.board.updateState(p1_action)
-                # check board status if it is end
+                # improve player1's policy
+                self.p1.value_backup(self.board)
+                # check whether end of game
                 win = self.board.winner()
 
                 if not self.board.isEnd:
-                    # Player 1 did not win or draw
-                    # -> Player 2's turn
+                    # player1 did not win or draw
+                    # -> player2's turn
                     positions = self.board.availablePositions()
                     p2_action = self.p2.chooseAction(positions, self.board)
                     self.board.updateState(p2_action)
-                    # check board status if it is end
+                    # improve player2's policy
+                    self.p2.value_backup(self.board)
+                    # check whether end of game
                     win = self.board.winner()
+
+#            self.board.showBoard()
+#            print(self.board.getHash())
+            # reset board and players at end of game
+            self.board.reset()
+            self.p1.reset()
+            self.p2.reset()
+            # show advancement
             if i % 1000 == 0:
                 print("{} partite giocate...".format(i))
 
@@ -162,60 +175,78 @@ class Judge:
 
 
 class Player:
-    def __init__(self, name, exploration_rate=0.01):
+    def __init__(self, name, exploration_rate=0.3):
         self.name = name
         self.learning_rate = 0.5
         self.exploration_rate = exploration_rate
         self.states_value = {}  # state -> value
+        self.boardHash_history = []
+        self.exploration_action = False
 
+    def reset(self):
+        # clears board state history
+        self.boardHash_history = []
+
+    def nextStateValue(self, current_state, position, symbol):
+        next_state = current_state.copy()
+        next_state[position] = symbol
+        next_board = Board(next_state)
+        next_boardHash = next_board.getHash()
+        if self.states_value.get(next_boardHash) is None:
+            # if yet unexplored state, also record value in states_value array
+            if next_board.winner() == symbol: # winning board states
+                # record as winning state
+                self.states_value[next_boardHash] = 1.0
+                #print("playerSymbol %d won with state: %s" % (symbol, next_boardHash))
+            elif next_board.winner() == (-1)*symbol: # loosing board states
+                # record as losing state
+                self.states_value[next_boardHash] = 0.0
+                #print("playerSymbol %d lost with state: %s" % (symbol, next_boardHash))
+            else: # same odds to win or loose
+                # record as neutral state
+                self.states_value[next_boardHash] = 0.5
+                #print("playerSymbol %d drew with state: %s" % (symbol, next_boardHash))
+        value = self.states_value.get(next_boardHash)
+        return value
 
     def chooseAction(self, positions, current_board):
         current_state = current_board.state
         symbol = current_board.playerSymbol
         if np.random.uniform(0, 1) <= self.exploration_rate:
+            self.exploration_action = True
             # take random action
             idx = np.random.choice(len(positions))
             action = positions[idx]
+            self.nextStateValue(current_state, action, symbol)
         else:
+            self.exploration_action = False
             value_max = -999
+            np.random.shuffle(positions)
             for p in positions:
-                next_state = current_state.copy()
-                next_state[p] = symbol
-
-                next_board = Board(next_state)
-                next_boardHash = next_board.getHash()
-
-                if self.states_value.get(next_boardHash) is None:
-                    # if yet unexplored state
-                    if next_board.winner() == symbol: # winning board states
-                        # record as winning state
-                        self.states_value[next_boardHash] = 1
-                    elif next_board.winner() == (-1)*symbol: # loosing board states
-                        # record as losing state
-                        self.states_value[next_boardHash] = 0
-                    else: # same odds to win or loose
-                        # record as neutral state
-                        self.states_value[next_boardHash] = 0.5
-
-                value = self.states_value.get(next_boardHash)
-                # print("value", value)
+                value = self.nextStateValue(current_state, p, symbol)
                 if value >= value_max:
                     value_max = value
                     action = p
-
-            # update current state value
-            if self.states_value.get(current_board.getHash()) is None:
-                # cannot be either a win or a loss -> set current value to 0.5
-                self.states_value[current_board.getHash()] = 0.5
-            self.states_value[current_board.getHash()] += self.learning_rate * (self.states_value[next_boardHash] - self.states_value[current_board.getHash()])
-
         # print("{} takes action {}".format(self.name, action))
         return action
 
+    def value_backup(self, board):
+        # add last board state to history
+        self.boardHash_history.append(board.getHash())
+#        print(self.name, self.boardHash_history)
+        # update value of previous board state
+        if len(self.boardHash_history) > 1 and self.exploration_action == False:   # no value backup for exploration moves
+#            print(self.name, self.boardHash_history[-2] + " -> " + str(self.states_value[self.boardHash_history[-2]]), end = ' ')
+            self.states_value[self.boardHash_history[-2]] += self.learning_rate * (
+                                                                self.states_value[self.boardHash_history[-1]] -
+                                                                self.states_value[self.boardHash_history[-2]]
+                                                            )
+#            print("-> " + str(self.states_value[self.boardHash_history[-2]]))
 
     def savePolicy(self):
         fw = open('policy_' + str(self.name) + '.pol', 'wb')
-        pickle.dump(self.states_value, fw)
+        pickle.dump(self.states_value, fw, 0) #protocol=0 -> human readable
+        #pickle.dump(self.states_value, fw)
         fw.close()
 
     def loadPolicy(self, file):
@@ -243,7 +274,7 @@ if __name__ == "__main__":
 
     jdg = Judge(p1, p2)
     print("Allenamento:")
-    jdg.train(20000)
+    jdg.train(200000)
     print("...terminato.")
     p1.savePolicy()
 
